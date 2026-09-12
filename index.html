@@ -30,7 +30,7 @@
   #arrowL{left:10px;} #arrowR{right:10px;}
   .cont-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:5;
     display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:94%;}
-  .cont-btn{background:rgba(20,20,20,.78);border:1px solid #333;color:#ddd;border-radius:999px;
+  .cont-btn{background:rgba(20,20,20,.78);border:1px solid #333;color:#dbdbdb;border-radius:999px;
     padding:6px 12px;font-size:12px;white-space:nowrap;}
   .cont-btn:hover{background:rgba(60,60,60,.9);color:#fff;}
   .cont-btn.active{background:#fff;color:#000;border-color:#fff;font-weight:700;}
@@ -275,8 +275,9 @@
           // живі оновлення з інших пристроїв
           self.db.child("sel").on("value", function(snap){
             var arr = snap.val() || [];
-            sel = new Set(arr);
-            try { localStorage.setItem(SEL_KEY, JSON.stringify(arr)); } catch (e) {}
+            sel = new Map();
+            for (var s0 = 0; s0 < arr.length; s0++) sel.set(arr[s0][1], arr[s0][0]);
+            try { localStorage.setItem(SEL_KEY, JSON.stringify({ cells: arr })); } catch (e) {}
             updateStats(); draw();
           });
           self.db.child("stat").on("value", function(snap){
@@ -292,7 +293,7 @@
       if (!this.cloud || !this.db){ return; }
       var self = this;
       var job = function(){
-        self.db.child("sel").set(Array.from(sel));
+        var out = []; sel.forEach(function(d,c){ out.push([d,c]); }); self.db.child("sel").set(out);
         self.db.child("stat").set(clickStat);
         self.db.child("start").set(startDay);
       };
@@ -313,12 +314,12 @@
     }
   };
   function setSync(t){ var el = document.getElementById("syncLine"); if (el) el.textContent = t; }
-  var sel = new Set();
+  var sel = new Map();
   try {
     var saved = JSON.parse(localStorage.getItem(SEL_KEY) || "[]");
-    for (var s0 = 0; s0 < saved.length; s0++) sel.add(saved[s0]);
+    if (Array.isArray(saved)){ for (var s0 = 0; s0 < saved.length; s0++) sel.set(saved[s0], dayKey(new Date())); } else if (saved && saved.cells){ for (var s0 = 0; s0 < saved.cells.length; s0++) sel.set(saved.cells[s0][1], saved.cells[s0][0]); }
   } catch (e0) {}
-  function saveSel(){ try { localStorage.setItem(SEL_KEY, JSON.stringify(Array.from(sel))); } catch (e1) {} store.push(); }
+  function saveSel(){ var arr = []; sel.forEach(function(d,c){ arr.push([d,c]); }); try { localStorage.setItem(SEL_KEY, JSON.stringify({ cells: arr })); } catch (e1) {} store.push(); }
   // день №1 фіксується при першому відкритті й більше не змінюється
   var startDay = null;
   try { startDay = localStorage.getItem(START_KEY) || null; } catch (eS) {}
@@ -502,11 +503,8 @@
     if (i >= 0 && MAP[Math.floor(i / COLS)].charAt(i % COLS) === "1"){
       // перемикач: синій увімк / вимк + статистика кожного натискання
       var dk = dayKey(new Date());
-      if (sel.has(i)) sel.delete(i); else sel.add(i);
+      if (sel.has(i)){ sel.delete(i); } else { sel.set(i, dk); }
       saveSel();
-      clickStat.days[dk] = (clickStat.days[dk] || 0) + 1;
-      clickStat.total = (clickStat.total || 0) + 1;
-      saveStat();
       updateStats();
       pulse = i; pulseT = 1;
       var step = function(){ pulseT -= 0.08; draw(); if (pulseT > 0) requestAnimationFrame(step); else pulse = -1; };
@@ -545,10 +543,21 @@
       clickStat.visit[today] = 1;
       saveStat();
     }
+    // рахуємо сині клітинки по днях із sel Map
+    var dayCounts = {};
+    sel.forEach(function(day, cell){ dayCounts[day] = (dayCounts[day] || 0) + 1; });
     var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     var week = 0, j, dd;
-    for (j = 0; j < 7; j++){ dd = new Date(midnight); dd.setDate(midnight.getDate() - j); week += clickStat.days[dayKey(dd)] || 0; }
+    for (j = 0; j < 7; j++){ dd = new Date(midnight); dd.setDate(midnight.getDate() - j); week += dayCounts[dayKey(dd)] || 0; }
     var mk = today.slice(0, 7), yk = today.slice(0, 4);
+    var monthC = 0, yearC = 0, totalC = 0, k;
+    for (k in dayCounts){
+      if (Object.prototype.hasOwnProperty.call(dayCounts, k)){
+        totalC += dayCounts[k];
+        if (k.slice(0,7) === mk) monthC += dayCounts[k];
+        if (k.slice(0,4) === yk) yearC += dayCounts[k];
+      }
+    }
     // дні проходження: з першого відкриття + активні дні + стрік
     var daysGone = dayNum(startDay, today);
     var activeDays = 0, kk;
@@ -561,11 +570,11 @@
     document.getElementById("stDays").textContent = daysGone;
     document.getElementById("stActive").textContent = activeDays;
     document.getElementById("stStreak").textContent = streak;
-    document.getElementById("stToday").textContent = clickStat.days[today] || 0;
+    document.getElementById("stToday").textContent = dayCounts[today] || 0;
     document.getElementById("stWeek").textContent = week;
-    document.getElementById("stMonth").textContent = statSum(function(k){ return k.slice(0, 7) === mk; });
-    document.getElementById("stYear").textContent = statSum(function(k){ return k.slice(0, 4) === yk; });
-    document.getElementById("stTotal").textContent = clickStat.total || 0;
+    document.getElementById("stMonth").textContent = monthC;
+    document.getElementById("stYear").textContent = yearC;
+    document.getElementById("stTotal").textContent = totalC;
     document.getElementById("stSel").textContent = sel.size;
     stats.textContent = COLS + " x " + ROWS + " клітинок · " + land.length + " точок суші · адаптивний canvas + DPR";
     var parts = startDay.split("-");
@@ -580,7 +589,7 @@
   });
   document.getElementById("resetStatBtn").addEventListener("click", function(){
     if (!window.confirm("Скинути статистику натискань? Дні проходження теж скинуться.")) return;
-    clickStat = { days: {}, total: 0, visit: {} }; saveStat();
+    sel.clear(); saveSel(); clickStat = { days: {}, total: 0, visit: {} }; saveStat();
     var nd = new Date(), nm = nd.getMonth() + 1, ndd = nd.getDate();
     startDay = nd.getFullYear() + "-" + (nm < 10 ? "0" + nm : nm) + "-" + (ndd < 10 ? "0" + ndd : ndd);
     try { localStorage.setItem(START_KEY, startDay); } catch (eR) {}
