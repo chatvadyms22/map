@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Мапа світу — Pixel Grid</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root{ --bg:#000000; --dot:#ffffff; --hover:#b8d600; --panel:#111111; --text:#f2f2f2; --muted:#9a9a9a; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;min-height:100vh;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+  .page{min-height:100vh;display:flex;flex-direction:column;align-items:center;
+    padding:32px 16px 48px;gap:18px;}
+  h1{margin:0;font-size:clamp(20px,3.4vw,30px);font-weight:700;text-align:center;}
+  .sub{margin:0;color:var(--muted);font-size:14px;text-align:center;max-width:640px;line-height:1.5;}
+  .map-wrap{width:min(1100px,96vw);background:var(--bg);border:1px solid #222;
+    border-radius:12px;padding:clamp(10px,2.5vw,28px);box-shadow:0 10px 40px rgba(0,0,0,.6);}
+  .map-ratio{position:relative;width:100%;aspect-ratio:128/54;overflow:hidden;}
+  canvas#map{position:absolute;inset:0;width:100%;height:100%;display:block;
+    background:var(--bg);border-radius:6px;cursor:grab;touch-action:none;}
+  .nav-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+    width:44px;height:64px;border-radius:10px;background:rgba(20,20,20,.72);
+    border:1px solid #333;color:#fff;font-size:24px;line-height:1;
+    display:flex;align-items:center;justify-content:center;opacity:.85;}
+  .nav-arrow:hover{background:rgba(50,50,50,.9);opacity:1;}
+  .nav-arrow:active{transform:translateY(-50%) scale(.95);}
+  #arrowL{left:10px;} #arrowR{right:10px;}
+  .cont-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:5;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:94%;}
+  .cont-btn{background:rgba(20,20,20,.78);border:1px solid #333;color:#ddd;border-radius:999px;
+    padding:6px 12px;font-size:12px;white-space:nowrap;}
+  .cont-btn:hover{background:rgba(60,60,60,.9);color:#fff;}
+  .cont-btn.active{background:#fff;color:#000;border-color:#fff;font-weight:700;}
+  #viewLabel{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:5;
+    background:rgba(20,20,20,.72);border:1px solid #333;color:#fff;font-size:12.5px;
+    padding:6px 14px;border-radius:999px;pointer-events:none;white-space:nowrap;}
+  canvas#map{position:absolute;inset:0;width:100%;height:100%;display:block;
+    background:var(--bg);border-radius:6px;cursor:grab;touch-action:none;}
+  #tip{position:fixed;pointer-events:none;z-index:10;background:#161616;border:1px solid #333;
+    color:#fff;font-size:12px;padding:5px 9px;border-radius:6px;
+    transform:translate(-50%,-140%);display:none;white-space:nowrap;}
+  .controls{width:min(1100px,96vw);display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    justify-content:center;background:var(--panel);border:1px solid #222;border-radius:10px;padding:12px 14px;}
+  .controls label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .controls input[type="range"]{accent-color:#fff;}
+  .btn{background:#1c1c1c;color:#fff;border:1px solid #333;border-radius:8px;
+    padding:8px 14px;font-size:13px;}
+  .btn:hover{background:#2a2a2a;}
+  .btn:active{transform:scale(.97);}
+  .btn.active{background:#fff;color:#000;border-color:#fff;font-weight:700;}
+  .stats{font-size:12.5px;color:var(--muted);text-align:center;}
+  .stat-cards{width:min(1100px,96vw);display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}
+  @media (max-width:700px){.stat-cards{grid-template-columns:repeat(3,1fr);}}
+  .stat-card{background:var(--panel);border:1px solid #222;border-radius:10px;padding:10px 6px;text-align:center;}
+  .stat-card b{display:block;font-size:22px;color:#fff;}
+  .stat-card b.blue{color:#5b9bff;}
+  .stat-card span{font-size:11.5px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Мапа світу · матриця точок</h1>
+  <p class="sub">Клік по точці фарбує її в синій, повторний клік — прибирає. Вибір і статистика натискань зберігаються у браузері.</p>
+  <div class="map-wrap"><div class="map-ratio">
+    <canvas id="map"></canvas>
+    <button class="nav-arrow" id="arrowL" title="Попередній континент">‹</button>
+    <button class="nav-arrow" id="arrowR" title="Наступний континент">›</button>
+    <div id="viewLabel">Весь світ</div>
+    <div class="cont-bar" id="contBar"></div>
+  </div></div>
+  <div id="tip"></div>
+  <div class="controls">
+    <label>Розмір точки <input id="dotRange" type="range" min="40" max="92" value="78"></label>
+    <label>Кути <input id="roundRange" type="range" min="0" max="50" value="22"></label>
+    <button class="btn active" id="themeBW">Чорний / Білий</button>
+    <button class="btn" id="themeLime">Сірий / Лайм (фото)</button>
+    <button class="btn" id="shapeBtn">Круглі: вимк</button>
+    <button class="btn" id="clearSelBtn">Очистити сині</button>
+    <button class="btn" id="resetStatBtn">Скинути статистику</button>
+  </div>
+  <div class="stat-cards">
+    <div class="stat-card"><b id="stDays">1</b><span>День проходження</span></div>
+    <div class="stat-card"><b id="stActive">0</b><span>Активних днів</span></div>
+    <div class="stat-card"><b id="stStreak">0</b><span>Стрік підряд</span></div>
+    <div class="stat-card"><b id="stToday">0</b><span>Сьогодні</span></div>
+    <div class="stat-card"><b id="stWeek">0</b><span>7 днів</span></div>
+    <div class="stat-card"><b id="stMonth">0</b><span>Цей місяць</span></div>
+    <div class="stat-card"><b id="stYear">0</b><span>Цей рік</span></div>
+    <div class="stat-card"><b id="stTotal">0</b><span>Усього</span></div>
+    <div class="stat-card"><b class="blue" id="stSel">0</b><span>Синіх зараз</span></div>
+  </div>
+  <div class="stats" id="journeyLine"></div>
+  <div class="stats" id="syncLine">Хмара: локальний режим (немає ключа Firebase)</div>
+  <div class="stats" id="stats"></div>
+</div>
+<script>
+(function(){
+  "use strict";
+  // Матриця даних: 128 x 54 (HD). "1" = континент, "0" = океан.
+  var COLS = 128, ROWS = 54;
+  var MAP = [
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000001111111100000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000111111111111000000000000011000000000000000000000000000111111100000000000000000000000",
+  "00000000000000000000000000000000111000000000111111111111100000000000000000000000000100000000000001111111000000000000000000000000",
+  "00000000000000000000000011001110111001100000111111111111100001111111111111110000000111011111111111111111111111111111100000000000",
+  "00000000111111111000000000000000000000000000011111111000000001111111111111110000010111111111111111111111111111111111111111100000",
+  "00000111111111111111111111111000000000000000001111110000000001111111111111111111111111111111111111111111111111111111111111111111",
+  "00001111111111111111111111111110000000000000000111000001100001111111111111111111111111111111111111111111111111111111111111111111",
+  "00011011111111111111111111111111000000000000000110000000000001111111111111111111111111111111111111111111111111111111111111100011",
+  "00100000100000011111111111111111000000000010000000000000000001111001110011111111111111111111111111111111111111111111110010000001",
+  "01000000000000001111111111111111000011111110000000000000000001111001110011111111111111111111111111111111111111111111000010000001",
+  "00000000000000000011111111111111110111111110000000000000000001111001111111111111111111111111111111111111111111111010000010000000",
+  "00000000000000000001111111111111111111111100000000000000000001000111111111111111111111111111111111111111111111000011000100000000",
+  "00000000000000000001111111111111111111111110000000000000000001111111111111000001110111111111111111111110000000000111011000000000",
+  "00000000000000000000111111111111111111111000000000000000000000001110110111000001110000111111011110000000000000111111100000000000",
+  "00000000000000000000111111111111111111110000000000000000000011111111110111111111110111111111101000000000001111011111000000000000",
+  "00000000000000000000011111111111111111000000000000000000000011000001110110001111110111111100000000000000011000011110000000000000",
+  "00000000000000000000011111111111111111000000000000000000000011110000010111111111111111111111111111110000110000011110000000000000",
+  "00000000000000000000000111111111111110000000000000000000000000111111111111001111111111111111111111110011110011011110000000000000",
+  "00000000000000000000000011111110001100000000000000000000000001111111111111101111100001111111111111110111111001110000000000000000",
+  "00000000000000000000000001111110000100000000000000000000000011111111111111100011100001111111111111111111100101110000000000000000",
+  "00000000000000000000000000111110000000000000000000000000000011111111111111110011100001111111111111111111100100000000000000000000",
+  "00000000000000000000000000111111011100000000000000000000001111111111111111110011111111111111111111111111000000000000000000000000",
+  "00000000000000000000000000000111000000000000000000000000001111111111111111110001111111001111111001111111001110000000000000000000",
+  "00000000000000000000000000000011110000000010000000000000001111111111111111110001111110001111111001111111001110000000000000000000",
+  "00000000000000000000000000000000011000110000000000000000001111111111111111111000111110001111110001111100001110000000000000000000",
+  "00000000000000000000000000000000000101111100000000000000000111111111111111111110110000001111110001111100110010000000000000000000",
+  "00000000000000000000000000000000000011111111100000000000000011111111111111111111110000001111110001111101111010000000000000000000",
+  "00000000000000000000000000000000000011111111110000000000000000000111111111111111110000000000000001101001111110000000000000000000",
+  "00000000000000000000000000000000000011111111111000000000000000000001111111111111110000000000000001111101110100000000000000000000",
+  "00000000000000000000000000000000000111111111111100000000000000000000111111111111000000000000000001111101110100011111000000000000",
+  "00000000000000000000000000000000000111111111111111100000000000000000111111111111000000000000000001111001110111111111000000000000",
+  "00000000000000000000000000000000000111111111111111110000000000000000111111111110000000000000000001111111111000011111000000000000",
+  "00000000000000000000000000000000000011111111111111110000000000000000111111111110000000000000000000000001110010000000000000000000",
+  "00000000000000000000000000000000000001111111111111110000000000000000111111111110100000000000000000000000000000111100000000000000",
+  "00000000000000000000000000000000000000111111111111100000000000000000011111111111110000000000000000000000000001111100000000000000",
+  "00000000000000000000000000000000000000011111111111000000000000000000011111111101110000000000000000000000001111111111000000000000",
+  "00000000000000000000000000000000000000011111111111000000000000000000011111111100110000000000000000000000011111111111100000000000",
+  "00000000000000000000000000000000000000011111111111000000000000000000011111111000110000000000000000000000111111111111110000000000",
+  "00000000000000000000000000000000000000011111111100000000000000000000011111111000000000000000000000000000111111111111111000000000",
+  "00000000000000000000000000000000000000011111111000000000000000000000011111100000000000000000000000000000111111111111111000000000",
+  "00000000000000000000000000000000000000011111110000000000000000000000001111100000000000000000000000000000111111111111110000000000",
+  "00000000000000000000000000000000000000011111100000000000000000000000000000000000000000000000000000000000000000001111110000000000",
+  "00000000000000000000000000000000000000111111000000000000000000000000000000000000000000000000000000000000000000000111100000000000",
+  "00000000000000000000000000000000000000111110000000000000000000000000000000000000000000000000000000000000000000000000000000011000",
+  "00000000000000000000000000000000000000111100000000000000000000000000000000000000000000000000000000000000000000000000100000011100",
+  "00000000000000000000000000000000000000111000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000110000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  ];
+  var land = [];
+  for (var r = 0; r < ROWS; r++){
+    for (var c = 0; c < COLS; c++){
+      if (MAP[r].charAt(c) === "1") land.push(r * COLS + c);
+    }
+  }
+  var canvas = document.getElementById("map");
+  var ctx = canvas.getContext("2d");
+  // --- континенти: межі в клітинках (c0,c1,r0,r1) сітки 128x54 ---
+  var WORLD = { name: "Весь світ", c0: 0, c1: 127, r0: 0, r1: 42 };
+  var CONT = [
+    WORLD,
+    { name: "Півн. Америка", c0: 0, c1: 38, r0: 2, r1: 36 },
+    { name: "Півд. Америка", c0: 28, c1: 48, r0: 23, r1: 46 },
+    { name: "Європа", c0: 56, c1: 76, r0: 3, r1: 20 },
+    { name: "Африка", c0: 57, c1: 80, r0: 16, r1: 38 },
+    { name: "Азія", c0: 74, c1: 122, r0: 3, r1: 33 },
+    { name: "Океанія", c0: 102, c1: 127, r0: 30, r1: 42 }
+  ];
+  var viewIdx = 0, zoom = 1, panX = 0, panY = 0;
+  var anim = null;
+  var label = document.getElementById("viewLabel");
+  var contBar = document.getElementById("contBar");
+  var tip = document.getElementById("tip");
+  var stats = document.getElementById("stats");
+  var opt = { dot: 0.78, round: 0.22, bg: "#000000", fg: "#ffffff", hv: "#b8d600", sel: "#2f7bff", circle: false };
+  var hover = -1, pulse = -1, pulseT = 0, raf = 0;
+  // --- камера: вигляд на континент (zoom+pan у клітинках), анімація ---
+  function applyView(idx, animate){
+    viewIdx = (idx + CONT.length) % CONT.length;
+    var v = CONT[viewIdx];
+    var spanC = v.c1 - v.c0 + 1, spanR = v.r1 - v.r0 + 1;
+    // запас навколо континенту, щоб не приближало впритул (0.72 = далі, 1.0 = впритул)
+    var PAD = 0.72;
+    var tZoom = Math.min(COLS / spanC, ROWS / spanR) * PAD;
+    if (viewIdx === 0) tZoom = 1;
+    var tPanX = (v.c0 + v.c1 + 1) / 2 - COLS / 2;
+    var tPanY = (v.r0 + v.r1 + 1) / 2 - ROWS / 2;
+    if (viewIdx === 0){ tPanX = 0; tPanY = 0; }
+    label.textContent = v.name;
+    var btns = contBar.children, bi;
+    for (bi = 0; bi < btns.length; bi++){
+      if (bi === viewIdx) btns[bi].classList.add("active"); else btns[bi].classList.remove("active");
+    }
+    if (anim) cancelAnimationFrame(anim);
+    if (!animate){ zoom = tZoom; panX = tPanX; panY = tPanY; draw(); return; }
+    var z0 = zoom, px0 = panX, py0 = panY, t0 = performance.now();
+    var stepA = function(t){
+      var p = Math.min(1, (t - t0) / 450), e = 1 - Math.pow(1 - p, 3);
+      zoom = z0 + (tZoom - z0) * e;
+      panX = px0 + (tPanX - px0) * e;
+      panY = py0 + (tPanY - py0) * e;
+      draw();
+      if (p < 1) anim = requestAnimationFrame(stepA); else anim = null;
+    };
+    anim = requestAnimationFrame(stepA);
+  }
+  function buildBar(){
+    var bi, b;
+    for (bi = 0; bi < CONT.length; bi++){
+      b = document.createElement("button");
+      b.className = "cont-btn" + (bi === 0 ? " active" : "");
+      b.textContent = CONT[bi].name;
+      (function(idx){ b.addEventListener("click", function(ev){ ev.stopPropagation(); applyView(idx, true); }); })(bi);
+      contBar.appendChild(b);
+    }
+  }
+  document.getElementById("arrowL").addEventListener("click", function(ev){ ev.stopPropagation(); applyView(viewIdx - 1, true); });
+  document.getElementById("arrowR").addEventListener("click", function(ev){ ev.stopPropagation(); applyView(viewIdx + 1, true); });
+  document.addEventListener("keydown", function(ev){
+    if (ev.key === "ArrowLeft") applyView(viewIdx - 1, true);
+    else if (ev.key === "ArrowRight") applyView(viewIdx + 1, true);
+    else if (ev.key === "Escape") applyView(0, true);
+  });
+  // вільний зум колесом + панорама перетягуванням
+  canvas.addEventListener("wheel", function(ev){
+    ev.preventDefault();
+    var z2 = zoom * (ev.deltaY < 0 ? 1.15 : 1 / 1.15);
+    zoom = Math.min(6, Math.max(1, z2));
+    if (zoom === 1){ panX = 0; panY = 0; viewIdx = 0; label.textContent = "Весь світ"; }
+    draw();
+  }, { passive: false });
+  // --- сховище: Firebase (хмара, усі пристрої) або localStorage (локально) ---
+  // 1) Створи проєкт на https://console.firebase.google.com → Realtime Database → увімкни Anonymous sign-in.
+  // 2) Встав свій firebaseConfig нижче. Правила БД: { "rules": { "pixelmap": { ".read": true, ".write": "auth != null" } } }
+  var firebaseConfig = {
+  apiKey: "AIzaSyD38U4HHiXvt-LcOowLHoLRptOqngkcZ-s",
+  authDomain: "mapa-f92c1.firebaseapp.com",
+  databaseURL: "https://mapa-f92c1-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "mapa-f92c1",
+  storageBucket: "mapa-f92c1.firebasestorage.app",
+  messagingSenderId: "767786929914",
+  appId: "1:767786929914:web:72f1889725b2b493044343"
+};
+  /* ПРИКЛАД (розкоментуй і підстав своє):
+  var firebaseConfig = {
+    apiKey: "AIza...",
+    authDomain: "tvoiy-proekt.firebaseapp.com",
+    databaseURL: "https://tvoiy-proekt-default-rtdb.firebaseio.com",
+    projectId: "tvoiy-proekt"
+  };
+  */
+  var SEL_KEY = "pixelmap_selected_v1", STAT_KEY = "pixelmap_clicks_v1", START_KEY = "pixelmap_start_v1";
+  var store = {
+    cloud: false, db: null, uid: null, queue: [], ready: false,
+    init: function(){
+      var self = this;
+      if (!firebaseConfig || !window.firebase){ self.ready = true; self.flush(); return; }
+      try {
+        firebase.initializeApp(firebaseConfig);
+        firebase.auth().signInAnonymously().then(function(cred){
+          self.uid = cred.user.uid;
+          self.db = firebase.database().ref("pixelmap/shared");
+          self.cloud = true;
+          setSync("Хмара: синхронізація увімкнена (усі пристрої бачать одне)");
+          // живі оновлення з інших пристроїв
+          self.db.child("sel").on("value", function(snap){
+            var arr = snap.val() || [];
+            sel = new Set(arr);
+            try { localStorage.setItem(SEL_KEY, JSON.stringify(arr)); } catch (e) {}
+            updateStats(); draw();
+          });
+          self.db.child("stat").on("value", function(snap){
+            var v = snap.val();
+            if (v && v.days){ clickStat = v; try { localStorage.setItem(STAT_KEY, JSON.stringify(v)); } catch (e2) {} }
+            updateStats();
+          });
+          self.ready = true; self.flush();
+        }).catch(function(){ setSync("Хмара: не вдалося увійти (анонімний вхід вимкнено?) — локальний режим"); self.ready = true; self.flush(); });
+      } catch (e3){ setSync("Хмара: помилка ініціалізації — локальний режим"); self.ready = true; self.flush(); }
+    },
+    push: function(){
+      if (!this.cloud || !this.db){ return; }
+      var self = this;
+      var job = function(){
+        self.db.child("sel").set(Array.from(sel));
+        self.db.child("stat").set(clickStat);
+        self.db.child("start").set(startDay);
+      };
+      if (this.ready && this.uid) job(); else this.queue.push(job);
+    },
+    flush: function(){ while (this.queue.length) (this.queue.shift())(); },
+    pullStart: function(){
+      if (!this.cloud || !this.db) return;
+      var self = this;
+      var job = function(){
+        self.db.child("start").once("value").then(function(snap){
+          var v = snap.val();
+          if (typeof v === "string" && v){ startDay = v; try { localStorage.setItem(START_KEY, v); } catch (e4) {} updateStats(); }
+          else self.db.child("start").set(startDay);
+        });
+      };
+      if (this.ready && this.uid) job(); else this.queue.push(job);
+    }
+  };
+  function setSync(t){ var el = document.getElementById("syncLine"); if (el) el.textContent = t; }
+  var sel = new Set();
+  try {
+    var saved = JSON.parse(localStorage.getItem(SEL_KEY) || "[]");
+    for (var s0 = 0; s0 < saved.length; s0++) sel.add(saved[s0]);
+  } catch (e0) {}
+  function saveSel(){ try { localStorage.setItem(SEL_KEY, JSON.stringify(Array.from(sel))); } catch (e1) {} store.push(); }
+  // день №1 фіксується при першому відкритті й більше не змінюється
+  var startDay = null;
+  try { startDay = localStorage.getItem(START_KEY) || null; } catch (eS) {}
+  if (!startDay){
+    var sd = new Date();
+    var sm = sd.getMonth() + 1, sdd = sd.getDate();
+    startDay = sd.getFullYear() + "-" + (sm < 10 ? "0" + sm : sm) + "-" + (sdd < 10 ? "0" + sdd : sdd);
+    try { localStorage.setItem(START_KEY, startDay); } catch (eS2) {}
+  }
+  function dayNum(a, b){
+    var pa = a.split("-"), pb = b.split("-");
+    var da = new Date(+pa[0], +pa[1] - 1, +pa[2]), db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
+    return Math.round((db - da) / 86400000) + 1;
+  }
+  function plural(n, one, few, many){
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  }
+  function dayKey(d){
+    var m = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" + m : m) + "-" + (dd < 10 ? "0" + dd : dd);
+  }
+  var clickStat = { days: {}, total: 0 };
+  try {
+    var cs = JSON.parse(localStorage.getItem(STAT_KEY) || "null");
+    if (cs && cs.days) clickStat = cs;
+  } catch (e2) {}
+  function saveStat(){ try { localStorage.setItem(STAT_KEY, JSON.stringify(clickStat)); } catch (e3) {} store.push(); }
+  function resize(){
+    var rc = canvas.getBoundingClientRect();
+    var dpr = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.round(rc.width * dpr));
+    canvas.height = Math.max(1, Math.round(rc.height * dpr));
+    draw();
+  }
+  function draw(){
+    var W = canvas.width, H = canvas.height;
+    var cell = Math.min(W / COLS, H / ROWS) * zoom;
+    // центр виду: центр мапи + панорама, переводимо в пікселі
+    var cxCell = COLS / 2 + panX, cyCell = ROWS / 2 + panY;
+    var ox = W / 2 - cxCell * cell, oy = H / 2 - cyCell * cell;
+    var dot = cell * opt.dot, gap = (cell - dot) / 2;
+    var rad = Math.min(dot / 2, dot * opt.round);
+    ctx.fillStyle = opt.bg; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = opt.fg;
+    var k, i, col, row, x, y;
+    var skipSel = sel.size > 0;
+    if (opt.circle){
+      for (k = 0; k < land.length; k++){
+        i = land[k]; if (i === hover || i === pulse || (skipSel && sel.has(i))) continue;
+        col = i % COLS; row = (i - col) / COLS;
+        ctx.beginPath();
+        ctx.arc(ox + col * cell + cell / 2, oy + row * cell + cell / 2, dot / 2, 0, 6.2832);
+        ctx.fill();
+      }
+    } else if (ctx.roundRect){
+      ctx.beginPath();
+      for (k = 0; k < land.length; k++){
+        i = land[k]; if (i === hover || i === pulse || (skipSel && sel.has(i))) continue;
+        col = i % COLS; row = (i - col) / COLS;
+        x = ox + col * cell + gap; y = oy + row * cell + gap;
+        ctx.moveTo(x + rad, y);
+        ctx.roundRect(x, y, dot, dot, rad);
+      }
+      ctx.fill();
+    } else {
+      for (k = 0; k < land.length; k++){
+        i = land[k]; if (i === hover || i === pulse || (skipSel && sel.has(i))) continue;
+        col = i % COLS; row = (i - col) / COLS;
+        ctx.fillRect(ox + col * cell + gap, oy + row * cell + gap, dot, dot);
+      }
+    }
+    // Вибрані клітинки — сині (повторний клік знімає вибір)
+    if (sel.size > 0){
+      ctx.fillStyle = opt.sel;
+      var q, qi, qc, qr, qx, qy;
+      if (opt.circle){
+        for (q = 0; q < land.length; q++){
+          qi = land[q]; if (!sel.has(qi) || qi === pulse) continue;
+          qc = qi % COLS; qr = (qi - qc) / COLS;
+          ctx.beginPath();
+          ctx.arc(ox + qc * cell + cell / 2, oy + qr * cell + cell / 2, dot / 2, 0, 6.2832);
+          ctx.fill();
+        }
+      } else if (ctx.roundRect){
+        ctx.beginPath();
+        for (q = 0; q < land.length; q++){
+          qi = land[q]; if (!sel.has(qi) || qi === pulse) continue;
+          qc = qi % COLS; qr = (qi - qc) / COLS;
+          qx = ox + qc * cell + gap; qy = oy + qr * cell + gap;
+          ctx.moveTo(qx + rad, qy);
+          ctx.roundRect(qx, qy, dot, dot, rad);
+        }
+        ctx.fill();
+      } else {
+        for (q = 0; q < land.length; q++){
+          qi = land[q]; if (!sel.has(qi) || qi === pulse) continue;
+          qc = qi % COLS; qr = (qi - qc) / COLS;
+          ctx.fillRect(ox + qc * cell + gap, oy + qr * cell + gap, dot, dot);
+        }
+      }
+      ctx.fillStyle = opt.fg;
+    }
+    if (hover >= 0){
+      var hc = hover % COLS, hr = (hover - hc) / COLS;
+      ctx.fillStyle = opt.hv;
+      if (opt.circle){
+        ctx.beginPath();
+        ctx.arc(ox + hc * cell + cell / 2, oy + hr * cell + cell / 2, dot * 0.72, 0, 6.2832);
+        ctx.fill();
+      } else if (ctx.roundRect){
+        ctx.beginPath();
+        ctx.roundRect(ox + hc * cell + gap * 0.4, oy + hr * cell + gap * 0.4, cell - gap * 0.8, cell - gap * 0.8, rad);
+        ctx.fill();
+      } else {
+        ctx.fillRect(ox + hc * cell + gap * 0.4, oy + hr * cell + gap * 0.4, cell - gap * 0.8, cell - gap * 0.8);
+      }
+      ctx.fillStyle = opt.fg;
+    }
+    if (pulse >= 0 && pulseT > 0){
+      var pc = pulse % COLS, pr = (pulse - pc) / COLS;
+      ctx.save(); ctx.globalAlpha = Math.max(0, pulseT); ctx.fillStyle = opt.hv;
+      ctx.beginPath();
+      ctx.arc(ox + pc * cell + cell / 2, oy + pr * cell + cell / 2, cell * (1.6 - pulseT), 0, 6.2832);
+      ctx.fill(); ctx.restore();
+    }
+  }
+  function sched(){ if (!raf) raf = requestAnimationFrame(function(){ raf = 0; draw(); }); }
+  function cellFromEvent(e){
+    var rc = canvas.getBoundingClientRect();
+    var px = (e.clientX - rc.left) * (canvas.width / rc.width);
+    var py = (e.clientY - rc.top) * (canvas.height / rc.height);
+    var cell = Math.min(canvas.width / COLS, canvas.height / ROWS) * zoom;
+    var cxCell = COLS / 2 + panX, cyCell = ROWS / 2 + panY;
+    var ox = canvas.width / 2 - cxCell * cell, oy = canvas.height / 2 - cyCell * cell;
+    var c = Math.floor((px - ox) / cell), r2 = Math.floor((py - oy) / cell);
+    if (c < 0 || c >= COLS || r2 < 0 || r2 >= ROWS) return -1;
+    return r2 * COLS + c;
+  }
+  // перетягування мапи (панорама), клік відрізняємо від драгу за рухом
+  var dragOn = false, dragMoved = 0, dragX = 0, dragY = 0;
+  function evPos(ev){ return (ev.touches && ev.touches[0]) || ev; }
+  function downPos(x, y){ dragOn = true; dragMoved = 0; dragX = x; dragY = y; canvas.style.cursor = "grabbing"; }
+  function movePos(x, y){
+    if (!dragOn) return;
+    var dx = x - dragX, dy = y - dragY;
+    dragMoved += Math.abs(dx) + Math.abs(dy);
+    dragX = x; dragY = y;
+    var rc = canvas.getBoundingClientRect();
+    var cell = Math.min(canvas.width / COLS, canvas.height / ROWS) * zoom;
+    var sx = canvas.width / rc.width / cell, sy = canvas.height / rc.height / cell;
+    panX -= dx * sx; panY -= dy * sy;
+    if (dragMoved > 4) draw();
+  }
+  function upPos(){ dragOn = false; canvas.style.cursor = "grab"; }
+  canvas.addEventListener("mousedown", function(e){ downPos(e.clientX, e.clientY); });
+  window.addEventListener("mousemove", function(e){ movePos(e.clientX, e.clientY); });
+  window.addEventListener("mouseup", upPos);
+  canvas.addEventListener("touchstart", function(e){ var p = evPos(e); downPos(p.clientX, p.clientY); }, { passive: true });
+  canvas.addEventListener("touchmove", function(e){ var p = evPos(e); movePos(p.clientX, p.clientY); if (dragMoved > 4) e.preventDefault(); }, { passive: false });
+  canvas.addEventListener("touchend", upPos);
+  canvas.addEventListener("mousemove", function(e){
+    var i = cellFromEvent(e);
+    var ok = i >= 0 && MAP[Math.floor(i / COLS)].charAt(i % COLS) === "1";
+    hover = ok ? i : -1;
+    if (ok){
+      tip.style.display = "block";
+      tip.style.left = e.clientX + "px";
+      tip.style.top = e.clientY + "px";
+      tip.textContent = "суша · стовпчик " + (i % COLS) + " / рядок " + Math.floor(i / COLS);
+      canvas.style.cursor = "pointer";
+    } else { tip.style.display = "none"; canvas.style.cursor = "crosshair"; }
+    sched();
+  });
+  canvas.addEventListener("mouseleave", function(){ hover = -1; tip.style.display = "none"; sched(); });
+  canvas.addEventListener("click", function(e){
+    if (dragMoved > 6) return; // це був драг, а не клік
+    var i = cellFromEvent(e);
+    if (i >= 0 && MAP[Math.floor(i / COLS)].charAt(i % COLS) === "1"){
+      // перемикач: синій увімк / вимк + статистика кожного натискання
+      var dk = dayKey(new Date());
+      if (sel.has(i)) sel.delete(i); else sel.add(i);
+      saveSel();
+      clickStat.days[dk] = (clickStat.days[dk] || 0) + 1;
+      clickStat.total = (clickStat.total || 0) + 1;
+      saveStat();
+      updateStats();
+      pulse = i; pulseT = 1;
+      var step = function(){ pulseT -= 0.08; draw(); if (pulseT > 0) requestAnimationFrame(step); else pulse = -1; };
+      step();
+    }
+  });
+  document.getElementById("dotRange").addEventListener("input", function(ev){ opt.dot = ev.target.value / 100; sched(); });
+  document.getElementById("roundRange").addEventListener("input", function(ev){ opt.round = ev.target.value / 100; sched(); });
+  var bBW = document.getElementById("themeBW"), bLime = document.getElementById("themeLime");
+  bBW.addEventListener("click", function(){
+    opt.bg = "#000000"; opt.fg = "#ffffff"; opt.hv = "#b8d600";
+    bBW.classList.add("active"); bLime.classList.remove("active"); sched();
+  });
+  bLime.addEventListener("click", function(){
+    opt.bg = "#5f5f5f"; opt.fg = "#b8d600"; opt.hv = "#ffffff";
+    bLime.classList.add("active"); bBW.classList.remove("active"); sched();
+  });
+  var bShape = document.getElementById("shapeBtn");
+  bShape.addEventListener("click", function(){
+    opt.circle = !opt.circle;
+    bShape.textContent = opt.circle ? "Круглі: увімк" : "Круглі: вимк";
+    sched();
+  });
+  function statSum(pred){
+    var s = 0, k;
+    for (k in clickStat.days){
+      if (Object.prototype.hasOwnProperty.call(clickStat.days, k) && pred(k)) s += clickStat.days[k];
+    }
+    return s;
+  }
+  function updateStats(){
+    var now = new Date(), today = dayKey(now);
+    // відмічаємо сьогоднішній день як день відвідування карти
+    if (!(clickStat.visit && clickStat.visit[today])){
+      if (!clickStat.visit) clickStat.visit = {};
+      clickStat.visit[today] = 1;
+      saveStat();
+    }
+    var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var week = 0, j, dd;
+    for (j = 0; j < 7; j++){ dd = new Date(midnight); dd.setDate(midnight.getDate() - j); week += clickStat.days[dayKey(dd)] || 0; }
+    var mk = today.slice(0, 7), yk = today.slice(0, 4);
+    // дні проходження: з першого відкриття + активні дні + стрік
+    var daysGone = dayNum(startDay, today);
+    var activeDays = 0, kk;
+    if (clickStat.visit) for (kk in clickStat.visit){
+      if (Object.prototype.hasOwnProperty.call(clickStat.visit, kk)) activeDays++;
+    }
+    var streak = 0, cur = new Date(midnight);
+    if (!(clickStat.visit && clickStat.visit[today])) cur.setDate(cur.getDate() - 1);
+    while (clickStat.visit && clickStat.visit[dayKey(cur)]){ streak++; cur.setDate(cur.getDate() - 1); }
+    document.getElementById("stDays").textContent = daysGone;
+    document.getElementById("stActive").textContent = activeDays;
+    document.getElementById("stStreak").textContent = streak;
+    document.getElementById("stToday").textContent = clickStat.days[today] || 0;
+    document.getElementById("stWeek").textContent = week;
+    document.getElementById("stMonth").textContent = statSum(function(k){ return k.slice(0, 7) === mk; });
+    document.getElementById("stYear").textContent = statSum(function(k){ return k.slice(0, 4) === yk; });
+    document.getElementById("stTotal").textContent = clickStat.total || 0;
+    document.getElementById("stSel").textContent = sel.size;
+    stats.textContent = COLS + " x " + ROWS + " клітинок · " + land.length + " точок суші · адаптивний canvas + DPR";
+    var parts = startDay.split("-");
+    document.getElementById("journeyLine").textContent =
+      "Ти проходиш мапу вже " + daysGone + " " + plural(daysGone, "день", "дні", "днів") +
+      " (з " + parts[2] + "." + parts[1] + "." + parts[0] + ") · " +
+      activeDays + " " + plural(activeDays, "активний день", "активні дні", "активних днів") +
+      " · стрік " + streak + " " + plural(streak, "день", "дні", "днів");
+  }
+  document.getElementById("clearSelBtn").addEventListener("click", function(){
+    sel.clear(); saveSel(); updateStats(); sched();
+  });
+  document.getElementById("resetStatBtn").addEventListener("click", function(){
+    if (!window.confirm("Скинути статистику натискань? Дні проходження теж скинуться.")) return;
+    clickStat = { days: {}, total: 0, visit: {} }; saveStat();
+    var nd = new Date(), nm = nd.getMonth() + 1, ndd = nd.getDate();
+    startDay = nd.getFullYear() + "-" + (nm < 10 ? "0" + nm : nm) + "-" + (ndd < 10 ? "0" + ndd : ndd);
+    try { localStorage.setItem(START_KEY, startDay); } catch (eR) {}
+    updateStats();
+  });
+  updateStats();
+  buildBar();
+  store.init();
+  store.pullStart();
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", resize);
+  resize();
+})();</script>
+</body>
+</html>
