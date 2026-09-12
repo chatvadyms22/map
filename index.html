@@ -64,6 +64,18 @@
   .btn.auto:hover{background:linear-gradient(180deg,#5b9bff,#2f7bff);}
   .btn.auto.running{animation:pulseAuto 1s infinite;}
   @keyframes pulseAuto{0%,100%{box-shadow:0 0 0 0 rgba(47,123,255,.5);}50%{box-shadow:0 0 0 8px rgba(47,123,255,0);}}
+  .daily-history{width:min(1100px,96vw);background:var(--panel);border:1px solid #222;border-radius:10px;padding:14px 16px;}
+  .daily-history h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:600;}
+  .daily-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;}
+  .daily-row{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0d0d0d;border:1px solid #1a1a1a;border-radius:8px;transition:background .2s;}
+  .daily-row:hover{background:#161616;border-color:#333;}
+  .daily-row.today{border-color:#5b9bff;background:rgba(47,123,255,.08);}
+  .daily-date{font-size:14px;color:#ccc;font-variant-numeric:tabular-nums;}
+  .daily-count{font-size:24px;font-weight:700;color:#5b9bff;line-height:1;}
+  .daily-count.zero{color:#444;}
+  .daily-empty{text-align:center;color:#555;font-size:13px;padding:20px;}
+  .daily-row .bar{height:4px;background:#1a1a1a;border-radius:2px;flex:1;margin:0 14px;overflow:hidden;position:relative;}
+  .daily-row .bar-fill{height:100%;background:linear-gradient(90deg,#2f7bff,#7dd3fc);border-radius:2px;}
   .stat-cards{width:min(1100px,96vw);display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}
   @media (max-width:700px){.stat-cards{grid-template-columns:repeat(3,1fr);}}
   .stat-card{background:var(--panel);border:1px solid #222;border-radius:10px;padding:10px 6px;text-align:center;}
@@ -110,6 +122,7 @@
   <div class="stats" id="syncLine">Хмара: локальний режим (немає ключа Firebase)</div>
   <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"><span class="progress-label" id="progLabel">0.00%</span></div></div></div>
   <div class="stats" id="stats"></div>
+  <div class="daily-history"><h3>Історія заповнення</h3><div class="daily-list" id="dailyList"></div></div>
 </div>
 <script>
 (function(){
@@ -551,6 +564,34 @@
     return s;
   }
 
+
+  function updateDailyHistory(){
+    var dayCounts = {};
+    sel.forEach(function(day, cell){
+      dayCounts[day] = (dayCounts[day] || 0) + 1;
+    });
+    var list = document.getElementById("dailyList");
+    var days = Object.keys(dayCounts).sort().reverse();
+    if (days.length === 0){
+      list.innerHTML = '<div class="daily-empty">Немає даних — постав хоча б одну синю клітинку</div>';
+      return;
+    }
+    var max = 1;
+    for (var i = 0; i < days.length; i++) if (dayCounts[days[i]] > max) max = dayCounts[days[i]];
+    var today = dayKey(new Date());
+    var html = "";
+    for (var i = 0; i < days.length; i++){
+      var d = days[i];
+      var parts = d.split("-");
+      var dd = parts[2] + "." + parts[1] + "." + parts[0];
+      var cnt = dayCounts[d];
+      var cls = d === today ? " daily-row today" : "";
+      var cntClass = cnt === 0 ? "daily-count zero" : "daily-count";
+      var pct = Math.round(cnt / max * 100);
+      html += '<div class="daily-row' + cls + '"><span class="daily-date">' + dd + '</span><div class="bar"><div class="bar-fill" style="width:' + pct + '%"></div></div><span class="' + cntClass + '">' + cnt + '</span></div>';
+    }
+    list.innerHTML = html;
+  }
   function updateProgress(){
     var pct = land.length > 0 ? (sel.size / land.length * 100) : 0;
     var fill = document.getElementById("progFill");
