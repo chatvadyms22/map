@@ -52,6 +52,18 @@
   .btn:active{transform:scale(.97);}
   .btn.active{background:#fff;color:#000;border-color:#fff;font-weight:700;}
   .stats{font-size:12.5px;color:var(--muted);text-align:center;}
+  .progress-wrap{width:min(1100px,96vw);margin-top:4px;}
+  .progress-bar{height:18px;background:#1a1a1a;border:1px solid #333;border-radius:9px;overflow:hidden;position:relative;}
+  .progress-fill{height:100%;background:linear-gradient(90deg,#2f7bff,#5b9bff,#7dd3fc);border-radius:9px;transition:width .35s;position:relative;}
+  .progress-fill::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent,transparent 8px,rgba(255,255,255,.07) 8px,rgba(255,255,255,.07) 16px);}
+  .progress-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8);}
+  .auto-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .auto-row input[type="number"]{width:70px;background:#0d0d0d;color:#fff;border:1px solid #333;border-radius:7px;padding:7px 10px;font-size:13px;text-align:center;}
+  .auto-row input[type="number"]:focus{border-color:#5b9bff;outline:none;}
+  .btn.auto{background:linear-gradient(180deg,#2f7bff,#1a5fd4);border-color:#2f7bff;}
+  .btn.auto:hover{background:linear-gradient(180deg,#5b9bff,#2f7bff);}
+  .btn.auto.running{animation:pulseAuto 1s infinite;}
+  @keyframes pulseAuto{0%,100%{box-shadow:0 0 0 0 rgba(47,123,255,.5);}50%{box-shadow:0 0 0 8px rgba(47,123,255,0);}}
   .stat-cards{width:min(1100px,96vw);display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}
   @media (max-width:700px){.stat-cards{grid-template-columns:repeat(3,1fr);}}
   .stat-card{background:var(--panel);border:1px solid #222;border-radius:10px;padding:10px 6px;text-align:center;}
@@ -80,6 +92,8 @@
     <button class="btn" id="shapeBtn">Круглі: вимк</button>
     <button class="btn" id="clearSelBtn">Очистити сині</button>
     <button class="btn" id="resetStatBtn">Скинути статистику</button>
+    <span style="width:1px;height:24px;background:#333;margin:0 4px;"></span>
+    <span class="auto-row"><input type="number" id="autoNum" min="1" max="9999" value="10" placeholder="#"><button class="btn auto" id="autoBtn">▶ Авто</button></span>
   </div>
   <div class="stat-cards">
     <div class="stat-card"><b id="stDays">1</b><span>День проходження</span></div>
@@ -94,6 +108,7 @@
   </div>
   <div class="stats" id="journeyLine"></div>
   <div class="stats" id="syncLine">Хмара: локальний режим (немає ключа Firebase)</div>
+  <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"><span class="progress-label" id="progLabel">0.00%</span></div></div></div>
   <div class="stats" id="stats"></div>
 </div>
 <script>
@@ -535,6 +550,14 @@
     }
     return s;
   }
+
+  function updateProgress(){
+    var pct = land.length > 0 ? (sel.size / land.length * 100) : 0;
+    var fill = document.getElementById("progFill");
+    var label = document.getElementById("progLabel");
+    fill.style.width = pct.toFixed(2) + "%";
+    label.textContent = pct.toFixed(2) + "%  (" + sel.size + " з " + land.length + ")";
+  }
   function updateStats(){
     var now = new Date(), today = dayKey(now);
     // відмічаємо сьогоднішній день як день відвідування карти
@@ -576,6 +599,7 @@
     document.getElementById("stYear").textContent = yearC;
     document.getElementById("stTotal").textContent = totalC;
     document.getElementById("stSel").textContent = sel.size;
+    updateProgress();
     stats.textContent = COLS + " x " + ROWS + " клітинок · " + land.length + " точок суші · адаптивний canvas + DPR";
     var parts = startDay.split("-");
     document.getElementById("journeyLine").textContent =
@@ -594,6 +618,31 @@
     startDay = nd.getFullYear() + "-" + (nm < 10 ? "0" + nm : nm) + "-" + (ndd < 10 ? "0" + ndd : ndd);
     try { localStorage.setItem(START_KEY, startDay); } catch (eR) {}
     updateStats();
+  });
+
+  // автонажаття: рандомно заповнює N клітинок
+  var autoTimer = null;
+  document.getElementById("autoBtn").addEventListener("click", function(){
+    if (autoTimer){ clearInterval(autoTimer); autoTimer = null; this.classList.remove("running"); this.textContent = "▶ Авто"; return; }
+    var input = document.getElementById("autoNum");
+    var target = Math.max(1, Math.min(9999, parseInt(input.value, 10) || 0));
+    if (target <= 0) return;
+    var btn = this;
+    btn.classList.add("running");
+    btn.textContent = "⏸ Стоп";
+    var dk = dayKey(new Date());
+    var added = 0;
+    autoTimer = setInterval(function(){
+      if (added >= target){ clearInterval(autoTimer); autoTimer = null; btn.classList.remove("running"); btn.textContent = "▶ Авто"; return; }
+      // збираємо вільні (не сині) клітинки
+      var free = [];
+      for (var i = 0; i < land.length; i++){ if (!sel.has(land[i])) free.push(land[i]); }
+      if (free.length === 0){ clearInterval(autoTimer); autoTimer = null; btn.classList.remove("running"); btn.textContent = "▶ Авто"; return; }
+      var pick = free[Math.floor(Math.random() * free.length)];
+      sel.set(pick, dk);
+      added++;
+      saveSel(); updateStats(); sched();
+    }, 60);
   });
   updateStats();
   buildBar();
