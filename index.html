@@ -641,6 +641,7 @@
     document.getElementById("stTotal").textContent = totalC;
     document.getElementById("stSel").textContent = sel.size;
     updateProgress();
+    updateDailyHistory();
     stats.textContent = COLS + " x " + ROWS + " клітинок · " + land.length + " точок суші · адаптивний canvas + DPR";
     var parts = startDay.split("-");
     document.getElementById("journeyLine").textContent =
