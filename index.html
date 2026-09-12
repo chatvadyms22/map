@@ -345,7 +345,7 @@
   var sel = new Map();
   try {
     var saved = JSON.parse(localStorage.getItem(SEL_KEY) || "[]");
-    if (Array.isArray(saved)){ for (var s0 = 0; s0 < saved.length; s0++) sel.set(saved[s0], dayKey(new Date())); } else if (saved && saved.cells){ for (var s0 = 0; s0 < saved.cells.length; s0++) sel.set(saved.cells[s0][1], saved.cells[s0][0]); }
+    var _sd = null; try { _sd = localStorage.getItem(START_KEY); } catch(eX) {} if (!_sd){ var _d = new Date(); _sd = _d.getFullYear() + "-" + (_d.getMonth()+1<10?"0"+(_d.getMonth()+1):_d.getMonth()+1) + "-" + (_d.getDate()<10?"0"+_d.getDate():_d.getDate()); } if (Array.isArray(saved)){ for (var s0 = 0; s0 < saved.length; s0++) sel.set(saved[s0], _sd); } else if (saved && saved.cells){ for (var s0 = 0; s0 < saved.cells.length; s0++) sel.set(saved.cells[s0][1], saved.cells[s0][0]); }
   } catch (e0) {}
   function saveSel(){ var arr = []; sel.forEach(function(d,c){ arr.push([d,c]); }); try { localStorage.setItem(SEL_KEY, JSON.stringify({ cells: arr })); } catch (e1) {} store.push(); }
   // день №1 фіксується при першому відкритті й більше не змінюється
